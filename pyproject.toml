@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=70.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bitbot"
+version = "0.1.0"
+description = "Crypto dip-buying trading agent"
+requires-python = ">=3.12"
+dependencies = [
+    "python-binance>=1.0.19",
+    "pandas>=2.2.0",
+    "pandas-ta>=0.3.14b1",
+    "numpy>=2.0.0",
+    "aiosqlite>=0.20.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[project.scripts]
+bitbot = "bitbot.main:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
