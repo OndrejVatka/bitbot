@@ -196,6 +196,42 @@ class Repository:
         await self._db.commit()
         return event_id
 
+    # --- Trades (read) ---
+
+    async def get_recent_trades(
+        self, symbol: str, limit: int = 50
+    ) -> list[dict]:
+        """Fetch recent trade logs, newest first."""
+        cursor = await self._db.execute(
+            """
+            SELECT * FROM trades
+            WHERE symbol = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (symbol, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    # --- Risk Events (read) ---
+
+    async def get_recent_risk_events(
+        self, symbol: str, limit: int = 20
+    ) -> list[dict]:
+        """Fetch recent risk events, newest first."""
+        cursor = await self._db.execute(
+            """
+            SELECT * FROM risk_events
+            WHERE symbol = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+            """,
+            (symbol, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
     # --- Portfolio Snapshots ---
 
     async def save_snapshot(
@@ -228,3 +264,21 @@ class Repository:
             ),
         )
         await self._db.commit()
+
+    async def get_snapshots(
+        self, symbol: str, hours: int = 24
+    ) -> list[dict]:
+        """Fetch portfolio snapshots from the last N hours, oldest first."""
+        from datetime import datetime, timedelta, timezone
+
+        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        cursor = await self._db.execute(
+            """
+            SELECT * FROM portfolio_snapshots
+            WHERE symbol = ? AND timestamp >= ?
+            ORDER BY timestamp ASC
+            """,
+            (symbol, since),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]

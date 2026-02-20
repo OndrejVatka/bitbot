@@ -26,6 +26,11 @@ env/
 data/*.db
 data/*.db-journal
 
+# Dashboard (Next.js)
+dashboard/.next/
+dashboard/node_modules/
+dashboard/.env.local
+
 # OS
 .DS_Store
 Thumbs.db

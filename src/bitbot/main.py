@@ -3,6 +3,9 @@
 Phase 2: Connects to Binance, streams candles, calculates technical
 indicators, scores confidence, and executes paper trades with full
 risk management.
+
+The API server (FastAPI + uvicorn) runs alongside the bot loop in the
+same asyncio event loop, sharing in-memory state via api.state.
 """
 
 from __future__ import annotations
@@ -11,15 +14,20 @@ import asyncio
 import logging
 import os
 import signal
+from datetime import datetime, timezone
 from pathlib import Path
 
 import certifi
+import uvicorn
 from binance import AsyncClient
 
 # Fix SSL certificate verification on macOS Python 3.12+
 if not os.environ.get("SSL_CERT_FILE"):
     os.environ["SSL_CERT_FILE"] = certifi.where()
 
+from bitbot.api.server import app as fastapi_app
+from bitbot.api.state import bot_state
+from bitbot.api.websocket import broadcaster
 from bitbot.config import load_settings
 from bitbot.database.repository import Repository
 from bitbot.database.schema import initialize_database
@@ -27,6 +35,7 @@ from bitbot.market_data.historical import HistoricalDataFetcher
 from bitbot.market_data.price_feed import PriceFeed
 from bitbot.paper_trading.simulator import PaperExecutor
 from bitbot.signals.scorer import SignalScorer
+from bitbot.signals.sentiment import SentimentAnalyzer
 from bitbot.signals.technical import TechnicalSignals
 from bitbot.trading.portfolio import Portfolio
 from bitbot.trading.risk_manager import RiskManager
@@ -38,14 +47,15 @@ async def main() -> None:
     """BitBot main loop.
 
     1. Load config and initialize all modules
-    2. Fetch historical candles for warm-up
-    3. Start WebSocket price feed
-    4. On each 15m candle close:
+    2. Start the API server as a background asyncio task
+    3. Fetch historical candles for warm-up
+    4. Start WebSocket price feed
+    5. On each 15m candle close:
        a. Calculate technical indicators
        b. Score confidence
        c. If score >= threshold: risk check → paper buy (with DCA scheduling)
        d. Check open positions for stop-loss / profit target
-       e. Log everything
+       e. Log everything and push WebSocket events
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -111,6 +121,35 @@ async def main() -> None:
         initial_capital=settings.capital.initial_usdt,
     )
     executor = PaperExecutor(fees_config=settings.fees, repo=repo)
+
+    # LLM sentiment layer
+    sentiment_analyzer = SentimentAnalyzer(
+        llm_config=settings.llm,
+        news_config=settings.news,
+        anthropic_api_key=settings.anthropic_api_key,
+        cryptopanic_api_key=settings.cryptopanic_api_key,
+    )
+    logger.info("Sentiment analyzer initialized (model=%s)", settings.llm.model)
+
+    # Populate shared API state so routes can serve live data
+    bot_state.portfolio = portfolio
+    bot_state.risk = risk
+    bot_state.repo = repo
+    bot_state.settings = settings
+    bot_state.symbol = symbol
+    bot_state.is_running = True
+
+    # Start the API server in the same asyncio event loop
+    uvicorn_config = uvicorn.Config(
+        fastapi_app,
+        host="0.0.0.0",
+        port=8000,
+        loop="asyncio",
+        log_level="warning",
+    )
+    api_server = uvicorn.Server(uvicorn_config)
+    asyncio.create_task(api_server.serve())
+    logger.info("API server starting on http://0.0.0.0:8000 (Swagger: /docs)")
 
     # DCA tranche tracking: position_id → remaining tranches count
     pending_tranches: dict[str, int] = {}
@@ -185,6 +224,20 @@ async def main() -> None:
             remaining - 1,
         )
 
+        await broadcaster.broadcast(
+            "trade",
+            {
+                "side": "buy",
+                "price": trade.price,
+                "quantity": trade.quantity,
+                "fee": trade.fee,
+                "usdt_value": trade.usdt_value,
+                "timestamp": trade.timestamp.isoformat(),
+                "mode": trade.mode,
+                "dca": True,
+            },
+        )
+
         # Schedule next tranche if any remain
         if remaining - 1 > 0:
             asyncio.create_task(
@@ -211,26 +264,68 @@ async def main() -> None:
         current_price = result.current_price
         prices = {sym: current_price}
 
-        # 2. Score confidence
-        score_result = scorer.calculate_score(result.signals_dict)
+        # Update shared state for API routes
+        bot_state.current_price = current_price
+
+        # 2a. Technical-only score (to check LLM trigger threshold)
+        preliminary = scorer.calculate_score(result.signals_dict)
+
+        # 2b. LLM sentiment layer (if score above trigger threshold)
+        sentiment_result = None
+        if preliminary.score >= settings.llm.trigger_threshold:
+            sentiment_result = await sentiment_analyzer.analyze(result, current_price)
+
+        # 2c. Final score (with sentiment adjustment if available)
+        if sentiment_result:
+            score_result = scorer.calculate_score(result.signals_dict, sentiment_result)
+            # Block all buys if Claude detected a fundamental shift
+            if sentiment_result.get("classification") == "fundamental_shift":
+                risk.record_sentiment_block()
+                await repo.log_risk_event(sym, "sentiment_block", sentiment_result)
+                await broadcaster.broadcast(
+                    "risk_event",
+                    {
+                        "event_type": "sentiment_block",
+                        "details": sentiment_result,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+        else:
+            score_result = preliminary
 
         logger.info(
-            "[#%d] $%.2f | score=%d/%d | %s | %s",
+            "[#%d] $%.2f | score=%d/%d | %s | %s%s",
             candle_count,
             current_price,
             score_result.score,
             100,
             score_result.action.upper(),
             score_result.reasoning,
+            f" | sentiment={sentiment_result['classification']}" if sentiment_result else "",
         )
 
-        # Log signal to DB
+        # Log signal to DB (including sentiment when available)
         await repo.log_signal(
             symbol=sym,
             confidence_score=score_result.score,
             action_taken=score_result.action,
             technical_signals=result.signals_dict,
             price_at_signal=current_price,
+            sentiment_result=sentiment_result,
+        )
+
+        # Push signal event to dashboard
+        await broadcaster.broadcast(
+            "signal",
+            {
+                "score": score_result.score,
+                "action": score_result.action,
+                "price": current_price,
+                "signals": result.signals_dict,
+                "reasoning": score_result.reasoning,
+                "sentiment": sentiment_result,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
         )
 
         # 3. Execute buy if score is high enough
@@ -257,6 +352,20 @@ async def main() -> None:
                     tranche_count,
                 )
 
+                await broadcaster.broadcast(
+                    "trade",
+                    {
+                        "side": "buy",
+                        "price": trade.price,
+                        "quantity": trade.quantity,
+                        "fee": trade.fee,
+                        "usdt_value": trade.usdt_value,
+                        "timestamp": trade.timestamp.isoformat(),
+                        "mode": trade.mode,
+                        "dca": False,
+                    },
+                )
+
                 # Schedule remaining DCA tranches
                 if tranche_count > 1:
                     pending_tranches[position.id] = tranche_count - 1
@@ -280,25 +389,72 @@ async def main() -> None:
             pos = portfolio.get_position(pos_id)
             if pos:
                 qty = pos.total_quantity
-                await executor.sell(sym, qty, current_price)
+                sell_trade = await executor.sell(sym, qty, current_price)
                 pnl = portfolio.close_position(pos_id, current_price)
                 risk.record_stop_loss()
                 pending_tranches.pop(pos_id, None)
                 logger.warning("STOP-LOSS %s: P&L=$%.2f", pos_id[:8], pnl)
-                await repo.log_risk_event(sym, "stop_loss", {"position_id": pos_id, "price": current_price, "pnl": pnl})
+                await repo.log_risk_event(
+                    sym, "stop_loss", {"position_id": pos_id, "price": current_price, "pnl": pnl}
+                )
+                await broadcaster.broadcast(
+                    "risk_event",
+                    {
+                        "event_type": "stop_loss",
+                        "position_id": pos_id,
+                        "price": current_price,
+                        "pnl": pnl,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                await broadcaster.broadcast(
+                    "trade",
+                    {
+                        "side": "sell",
+                        "price": sell_trade.price,
+                        "quantity": sell_trade.quantity,
+                        "fee": sell_trade.fee,
+                        "usdt_value": sell_trade.usdt_value,
+                        "timestamp": sell_trade.timestamp.isoformat(),
+                        "mode": sell_trade.mode,
+                        "reason": "stop_loss",
+                    },
+                )
 
         # Profit targets
         profit_ids = risk.check_profit_targets(prices)
         for pos_id in profit_ids:
             pos = portfolio.get_position(pos_id)
             if pos:
-                await executor.sell(sym, pos.total_quantity, current_price)
+                sell_trade = await executor.sell(sym, pos.total_quantity, current_price)
                 pnl = portfolio.close_position(pos_id, current_price)
                 pending_tranches.pop(pos_id, None)
                 logger.info("PROFIT TAKE %s: P&L=$%.2f", pos_id[:8], pnl)
+                await broadcaster.broadcast(
+                    "trade",
+                    {
+                        "side": "sell",
+                        "price": sell_trade.price,
+                        "quantity": sell_trade.quantity,
+                        "fee": sell_trade.fee,
+                        "usdt_value": sell_trade.usdt_value,
+                        "timestamp": sell_trade.timestamp.isoformat(),
+                        "mode": sell_trade.mode,
+                        "reason": "profit_target",
+                    },
+                )
 
         # 5. Update risk tracking
         risk.update_tracking(prices)
+
+        # Push current price event every candle
+        await broadcaster.broadcast(
+            "price",
+            {
+                "price": current_price,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
         # Periodic portfolio summary (every 10 candles)
         if candle_count % 10 == 0:
@@ -324,6 +480,18 @@ async def main() -> None:
                 open_positions_count=open_count,
                 unrealized_pnl=unrealized,
                 realized_pnl_cumulative=realized,
+            )
+
+            await broadcaster.broadcast(
+                "snapshot",
+                {
+                    "total_value": total,
+                    "available_capital": portfolio.cash,
+                    "open_positions_count": open_count,
+                    "unrealized_pnl": unrealized,
+                    "realized_pnl": realized,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
             )
 
     feed.on_candle_close(on_candle)
@@ -362,6 +530,7 @@ async def main() -> None:
         )
 
     # Cleanup
+    bot_state.is_running = False
     await feed.stop()
     await client.close_connection()
     await db.close()

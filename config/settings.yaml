@@ -52,7 +52,7 @@ risk:
 
 llm:
   provider: anthropic
-  model: claude-sonnet-4-5-20250929
+  model: claude-sonnet-4-6
   trigger_threshold: 40
   max_calls_per_hour: 10
 

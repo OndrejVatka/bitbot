@@ -136,9 +136,8 @@ class PriceFeed:
                     logger.info("WebSocket connected: %s", stream_name)
                     backoff = 1  # Reset on successful connection
 
-                    async for msg in stream:
-                        if not self._running:
-                            break
+                    while self._running:
+                        msg = await stream.recv()
 
                         if msg.get("e") == "error":
                             logger.error("WebSocket error: %s", msg)
