@@ -128,7 +128,7 @@ class PriceFeed:
 
         while self._running:
             try:
-                bsm = BinanceSocketManager(self._client)
+                bsm = BinanceSocketManager(self._client, max_queue_size=1000)
                 stream_name = f"{self._symbol.lower()}@kline_{timeframe}"
                 async with bsm.kline_socket(
                     symbol=self._symbol, interval=timeframe
@@ -149,7 +149,10 @@ class PriceFeed:
 
                         if candle.is_closed:
                             buffer.append(candle)
-                            await self._fire_callbacks(timeframe, candle)
+                            # Fire callbacks without blocking recv loop
+                            asyncio.create_task(
+                                self._fire_callbacks(timeframe, candle)
+                            )
                         else:
                             # Update the latest in-progress candle for current price
                             if buffer and not buffer[-1].is_closed:
