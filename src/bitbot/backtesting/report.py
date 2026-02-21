@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import numpy as np
+
 from bitbot.backtesting.engine import BacktestResult
 from bitbot.backtesting.metrics import PerformanceMetrics
 
@@ -168,7 +170,7 @@ class BacktestReport:
 
         # Drawdown subplot
         values = equity["portfolio_value"].values
-        peak = pd.Series(values).cummax()
+        peak = np.maximum.accumulate(values)
         drawdown = (peak - values) / peak * 100
 
         ax2.fill_between(equity.index, 0, -drawdown, color="red", alpha=0.3)
@@ -256,7 +258,7 @@ class BacktestReport:
             return
 
         values = equity["portfolio_value"].values
-        peak = pd.Series(values).cummax()
+        peak = np.maximum.accumulate(values)
         drawdown = (peak - values) / peak * 100
 
         fig, ax = plt.subplots(figsize=(14, 4))

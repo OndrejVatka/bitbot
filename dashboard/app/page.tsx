@@ -23,7 +23,13 @@ import {
 } from "@/lib/api";
 import type { LiveSignal } from "@/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function getWsUrl(): string {
+  if (typeof window === "undefined") return "ws://localhost:8000/ws";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (apiUrl) return apiUrl.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws")) + "/ws";
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}/ws`;
+}
 
 type Tab = "trades" | "signals" | "risk";
 
@@ -31,7 +37,7 @@ export default function DashboardPage() {
   const queryClient = useQueryClient();
 
   // WebSocket — live events from the bot loop
-  const wsUrl = `${API_URL}/ws`;
+  const wsUrl = getWsUrl();
   const { isConnected, lastMessage } = useWebSocket(wsUrl);
 
   // Live state updated instantly via WebSocket

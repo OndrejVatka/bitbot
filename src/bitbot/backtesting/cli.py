@@ -45,6 +45,10 @@ def main() -> None:
         "--capital", type=float, default=1000.0, help="Initial capital in USDT"
     )
     run_parser.add_argument(
+        "--threshold", type=int, default=60,
+        help="Minimum score to trigger a buy (default: 60, try 35-45 for technical-only)",
+    )
+    run_parser.add_argument(
         "--save-charts", default=None, help="Directory to save charts (e.g., output/)"
     )
     run_parser.add_argument(
@@ -144,13 +148,22 @@ async def _cmd_run(args: argparse.Namespace) -> None:
     try:
         dataset = await loader.load_dataset(args.symbol, start, end)
 
+        from bitbot.config import ScoringConfig
+
+        threshold = args.threshold
         config = BacktestConfig(
             symbol=args.symbol,
             initial_capital=args.capital,
+            scoring=ScoringConfig(
+                buy_threshold=threshold,
+                small_buy_range=[threshold, 74],
+                medium_buy_range=[75, 84],
+                large_buy_range=[85, 100],
+            ),
         )
         engine = BacktestEngine(config)
 
-        print(f"Running backtest ({len(dataset.candles_15m)} candles)...")
+        print(f"Running backtest ({len(dataset.candles_15m)} candles, buy threshold={threshold})...")
         result = engine.run(dataset)
 
         metrics = MetricsCalculator.calculate(result)

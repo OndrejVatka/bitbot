@@ -1,0 +1,17 @@
+.venv/
+.git/
+.gitignore
+data/
+output/
+__pycache__/
+*.pyc
+.env
+.env.local
+dashboard/node_modules/
+dashboard/.next/
+dashboard/.env.local
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+tests/

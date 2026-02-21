@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import logging.handlers
 import os
 import signal
 from datetime import datetime, timezone
@@ -57,11 +58,25 @@ async def main() -> None:
        d. Check open positions for stop-loss / profit target
        e. Log everything and push WebSocket events
     """
+    log_format = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+    log_datefmt = "%Y-%m-%d %H:%M:%S"
+
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        format=log_format,
+        datefmt=log_datefmt,
     )
+
+    # Add rotating file handler for production persistence
+    log_dir = Path(os.environ.get("BITBOT_LOG_DIR", "data/logs"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_dir / "bitbot.log",
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5,
+    )
+    file_handler.setFormatter(logging.Formatter(log_format, datefmt=log_datefmt))
+    logging.getLogger().addHandler(file_handler)
 
     settings = load_settings(Path("config/settings.yaml"))
     symbol = settings.exchange.trading_pair
@@ -78,7 +93,9 @@ async def main() -> None:
     )
 
     # Database
-    db = await initialize_database("data/bitbot.db")
+    db_path = os.environ.get("BITBOT_DB_PATH", "data/bitbot.db")
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    db = await initialize_database(db_path)
     repo = Repository(db)
     logger.info("Database initialized")
 

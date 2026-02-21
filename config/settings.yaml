@@ -23,16 +23,16 @@ signals:
   volume_decline_threshold: 0.8
 
 scoring:
-  buy_threshold: 60
-  small_buy_range: [60, 74]
+  buy_threshold: 30
+  small_buy_range: [30, 74]
   medium_buy_range: [75, 84]
   large_buy_range: [85, 100]
-  small_buy_pct: 0.05
+  small_buy_pct: 0.10
   medium_buy_pct: 0.10
-  large_buy_pct: 0.20
+  large_buy_pct: 0.25
 
 dca:
-  tranches: 3
+  tranches: 1
   min_interval_minutes: 10
   max_interval_minutes: 60
 
@@ -44,7 +44,7 @@ selling:
 risk:
   max_position_pct: 0.20
   max_total_exposure_pct: 0.70
-  stop_loss_pct: 5.0
+  stop_loss_pct: 3.0
   max_daily_loss_pct: 3.0
   max_drawdown_pct: 10.0
   cooldown_after_stoploss_hours: 4

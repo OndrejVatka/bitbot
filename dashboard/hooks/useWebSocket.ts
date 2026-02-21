@@ -11,10 +11,8 @@ export function useWebSocket(url: string) {
 
   useEffect(() => {
     function connect() {
-      // Convert http(s) → ws(s)
-      const wsUrl = url.replace(/^https?/, (m) => (m === "https" ? "wss" : "ws"));
-
-      const ws = new WebSocket(wsUrl);
+      // URL is already ws:// or wss:// (constructed by the caller)
+      const ws = new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () => setIsConnected(true);
