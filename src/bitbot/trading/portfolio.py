@@ -10,6 +10,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from bitbot.backtesting.clock import Clock, WallClock
 from bitbot.config import FeesConfig, SellingConfig
 
 logger = logging.getLogger(__name__)
@@ -95,11 +96,13 @@ class Portfolio:
         initial_capital: float,
         fees_config: FeesConfig,
         selling_config: SellingConfig,
+        clock: Clock | None = None,
     ) -> None:
         self._initial_capital = initial_capital
         self._cash = initial_capital
         self._fees = fees_config
         self._selling = selling_config
+        self._clock: Clock = clock or WallClock()
         self._positions: dict[str, Position] = {}
         self._closed_positions: list[Position] = []
 
@@ -141,7 +144,7 @@ class Portfolio:
             price=price,
             quantity=quantity,
             fee=fee,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=self._clock.now(),
         )
 
         # Calculate targets based on avg entry
@@ -206,7 +209,7 @@ class Portfolio:
             price=price,
             quantity=quantity,
             fee=fee,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=self._clock.now(),
         )
 
         position.tranches.append(tranche)
@@ -254,7 +257,7 @@ class Portfolio:
         position.sell_price = sell_price
         position.sell_fee = sell_fee
         position.status = "closed"
-        position.closed_at = datetime.now(timezone.utc)
+        position.closed_at = self._clock.now()
 
         # Return cash from sale (minus fee)
         self._cash += sell_value - sell_fee

@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
+from bitbot.backtesting.clock import Clock, WallClock
 from bitbot.config import RiskConfig
 from bitbot.trading.portfolio import Portfolio, Position
 
@@ -42,15 +43,17 @@ class RiskManager:
         config: RiskConfig,
         portfolio: Portfolio,
         initial_capital: float,
+        clock: Clock | None = None,
     ) -> None:
         self._config = config
         self._portfolio = portfolio
         self._initial_capital = initial_capital
+        self._clock: Clock = clock or WallClock()
 
         # Tracking state
         self._peak_value = initial_capital
         self._daily_start_value = initial_capital
-        self._daily_start_time = datetime.now(timezone.utc)
+        self._daily_start_time = self._clock.now()
         self._last_stoploss_time: datetime | None = None
         self._sentiment_block_until: datetime | None = None
         self._halted = False
@@ -76,7 +79,7 @@ class RiskManager:
 
         # Check sentiment block
         if self._sentiment_block_until:
-            now = datetime.now(timezone.utc)
+            now = self._clock.now()
             if now < self._sentiment_block_until:
                 remaining = (self._sentiment_block_until - now).total_seconds() / 3600
                 return RiskCheck(
@@ -91,7 +94,7 @@ class RiskManager:
             cooldown_end = self._last_stoploss_time + timedelta(
                 hours=self._config.cooldown_after_stoploss_hours
             )
-            now = datetime.now(timezone.utc)
+            now = self._clock.now()
             if now < cooldown_end:
                 remaining = (cooldown_end - now).total_seconds() / 3600
                 return RiskCheck(
@@ -208,7 +211,7 @@ class RiskManager:
             self._peak_value = total_value
 
         # Reset daily tracking at midnight UTC
-        now = datetime.now(timezone.utc)
+        now = self._clock.now()
         if now.date() > self._daily_start_time.date():
             self._daily_start_value = total_value
             self._daily_start_time = now
@@ -242,7 +245,7 @@ class RiskManager:
 
     def record_stop_loss(self) -> None:
         """Record that a stop-loss was triggered, starting the cooldown."""
-        self._last_stoploss_time = datetime.now(timezone.utc)
+        self._last_stoploss_time = self._clock.now()
         logger.info(
             "Stop-loss cooldown started (%dh)",
             self._config.cooldown_after_stoploss_hours,
@@ -250,7 +253,7 @@ class RiskManager:
 
     def record_sentiment_block(self) -> None:
         """Block all buys due to LLM 'fundamental_shift' classification."""
-        self._sentiment_block_until = datetime.now(timezone.utc) + timedelta(
+        self._sentiment_block_until = self._clock.now() + timedelta(
             hours=self._config.sentiment_block_hours
         )
         logger.warning(

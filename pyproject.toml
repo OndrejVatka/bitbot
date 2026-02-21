@@ -24,13 +24,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+backtest = [
+    "matplotlib>=3.8.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
+    "matplotlib>=3.8.0",
 ]
 
 [project.scripts]
 bitbot = "bitbot.main:run"
+bitbot-backtest = "bitbot.backtesting.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

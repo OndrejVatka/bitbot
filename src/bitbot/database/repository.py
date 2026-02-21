@@ -177,6 +177,47 @@ class Repository:
             for row in reversed(rows)
         ]
 
+    async def load_candles_range(
+        self,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+    ) -> list[Candle]:
+        """Load candles within a date range, oldest first.
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT').
+            timeframe: Candle timeframe (e.g., '15m', '4h').
+            start: Start of range (inclusive).
+            end: End of range (inclusive).
+
+        Returns:
+            List of Candle objects in chronological order.
+        """
+        cursor = await self._db.execute(
+            """
+            SELECT timestamp, open, high, low, close, volume
+            FROM candles
+            WHERE symbol = ? AND timeframe = ? AND timestamp >= ? AND timestamp <= ?
+            ORDER BY timestamp ASC
+            """,
+            (symbol, timeframe, start.isoformat(), end.isoformat()),
+        )
+        rows = await cursor.fetchall()
+
+        return [
+            Candle(
+                timestamp=datetime.fromisoformat(row[0]),
+                open=row[1],
+                high=row[2],
+                low=row[3],
+                close=row[4],
+                volume=row[5],
+            )
+            for row in rows
+        ]
+
     # --- Risk Events ---
 
     async def log_risk_event(
