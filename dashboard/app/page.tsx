@@ -134,10 +134,7 @@ export default function DashboardPage() {
         <span className="text-5xl">⚡</span>
         <h1 className="text-xl font-bold text-zinc-100">BitBot API not reachable</h1>
         <p className="max-w-sm text-sm text-zinc-500">
-          Make sure the bot is running and the API server is up at{" "}
-          <code className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-300">
-            {API_URL}
-          </code>
+          Make sure the bot is running and the API server is up.
         </p>
         <p className="text-xs text-zinc-600">
           Start the bot with <code className="font-mono">bitbot</code> — the API starts
