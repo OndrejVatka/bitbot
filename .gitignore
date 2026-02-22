@@ -21,15 +21,27 @@ env/
 
 # Environment & secrets
 .env
+.env.*
+!.env.example
+
+# Credentials & keys
+*.pem
+*.key
+*.p12
 
 # Data
-data/*.db
-data/*.db-journal
+data/
+*.db
+*.sqlite
+*.sqlite3
 
 # Dashboard (Next.js)
 dashboard/.next/
 dashboard/node_modules/
 dashboard/.env.local
+
+# Output
+output/
 
 # OS
 .DS_Store
