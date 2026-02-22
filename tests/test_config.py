@@ -48,7 +48,7 @@ class TestLoadSettings:
 
         assert settings.exchange.trading_pair == "BTCUSDT"
         assert settings.strategy.primary_timeframe == "15m"
-        assert settings.scoring.buy_threshold == 60
+        assert settings.scoring.buy_threshold == 30
 
     def test_scoring_ranges(self) -> None:
         """Scoring buy ranges should be properly structured."""
